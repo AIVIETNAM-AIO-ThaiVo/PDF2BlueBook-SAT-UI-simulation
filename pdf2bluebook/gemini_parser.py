@@ -46,7 +46,8 @@ PDF cleanup rules - apply before writing JSON:
 2. Do not rewrite, simplify, paraphrase, or change the meaning of a valid SAT question, passage, answer choice, proper noun, quotation, title, number, or punctuation. If a correction is uncertain, preserve the extracted text and lower confidence.
 3. Ignore all tabular material. Tables are extracted and rendered separately. Do not include a table title, header, cell value, row label, column label, or table note in passage, question, or choices - even when the question refers to a table or graph.
 4. Preserve every existing <u>, <b>, and <i> tag exactly in its original place. These tags are meaningful source formatting: underline often marks the evidence to analyze. Never remove, add, move, or convert these tags.
-5. Every bullet item must be on a separate line in the form `• item text`; never combine bullet items into one line. Preserve line breaks between bullet items in the passage field.
+5. Preserve every sequence of three or more underscore characters (`___`) exactly where it occurs. It represents an answer blank drawn as a vector line in the source PDF; never remove, shorten, replace, or move it.
+6. Every bullet item must be on a separate line in the form `• item text`; never combine bullet items into one line. Preserve line breaks between bullet items in the passage field.
 
 Keep a shared passage with every question that uses it. source_page must be the number following the closest preceding '--- PAGE N ---' marker.
 

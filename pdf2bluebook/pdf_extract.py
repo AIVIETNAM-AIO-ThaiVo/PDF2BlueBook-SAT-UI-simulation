@@ -174,14 +174,77 @@ def _format_span(span: dict) -> str:
     return text
 
 
+def _vector_blanks(page: fitz.Page) -> list[fitz.Rect]:
+    """Return short horizontal vector rules that are likely answer blanks.
+
+    SAT PDFs often draw a blank with a line instead of storing underscore
+    characters in the text layer.  The limits deliberately exclude page
+    rules, table borders, and most graph lines.
+    """
+    blanks: list[fitz.Rect] = []
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if not rect:
+            continue
+        rule = fitz.Rect(rect)
+        if not (14 <= rule.width <= 250 and rule.height <= 2.5):
+            continue
+        # A filled rectangle is commonly a UI/table decoration, not a blank.
+        if drawing.get("fill") is not None:
+            continue
+        blanks.append(rule)
+    return blanks
+
+
+def _blank_placeholder(rule: fitz.Rect, line_height: float) -> str:
+    """Approximate the visual width of a vector blank with readable text."""
+    underscore_width = max(line_height * 0.45, 4.0)
+    return "_" * max(3, min(24, round(rule.width / underscore_width)))
+
+
+def _format_line_with_vector_blanks(line: dict, blanks: list[fitz.Rect]) -> str:
+    """Merge nearby vector blanks into a text line in their x-coordinate order."""
+    spans = line.get("spans", [])
+    if not spans:
+        return ""
+
+    span_rects = [fitz.Rect(span["bbox"]) for span in spans if span.get("text")]
+    if not span_rects:
+        return ""
+    line_top = min(rect.y0 for rect in span_rects)
+    line_bottom = max(rect.y1 for rect in span_rects)
+    line_height = max(line_bottom - line_top, 1.0)
+
+    fragments: list[tuple[float, int, str]] = [
+        (fitz.Rect(span["bbox"]).x0, 1, _format_span(span)) for span in spans if span.get("text")
+    ]
+    for rule in blanks:
+        # Underlines are placed around the text baseline.  A short horizontal
+        # rule must also touch a text fragment on this line to be considered a
+        # blank; this avoids turning table borders into underscores.
+        if rule.y0 < line_top - 4 or rule.y0 > line_bottom + 5:
+            continue
+        if any(rule.intersects(rect) for rect in span_rects):
+            continue
+        adjacent = any(
+            abs(rule.x1 - rect.x0) <= 18 or abs(rule.x0 - rect.x1) <= 18 for rect in span_rects
+        )
+        if adjacent:
+            fragments.append((rule.x0, 0, _blank_placeholder(rule, line_height)))
+
+    fragments.sort(key=lambda fragment: (fragment[0], fragment[1]))
+    return "".join(fragment[2] for fragment in fragments)
+
+
 def extract_formatted_text(page: fitz.Page) -> str:
     """Extract text in reading order while retaining underline, bold, and italic spans."""
     lines: list[str] = []
+    vector_blanks = _vector_blanks(page)
     for block in page.get_text("dict", sort=True).get("blocks", []):
         if block.get("type") != 0:
             continue
         for line in block.get("lines", []):
-            lines.append("".join(_format_span(span) for span in line.get("spans", [])))
+            lines.append(_format_line_with_vector_blanks(line, vector_blanks))
     return normalize_bullets("\n".join(lines).strip())
 
 
