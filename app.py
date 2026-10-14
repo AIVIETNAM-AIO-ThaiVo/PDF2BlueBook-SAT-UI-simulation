@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import re
 import tempfile
@@ -24,6 +25,7 @@ def _new_session() -> None:
     st.session_state.errors = []
     st.session_state.source_name = ""
     st.session_state.has_answer_key = None
+    st.session_state.review_index = 0
 
 
 if "questions" not in st.session_state:
@@ -37,9 +39,42 @@ def _save_upload(upload) -> Path:
     return target
 
 
+def _set_review_index(index: int) -> None:
+    st.session_state.review_index = index
+    st.session_state.review_selector = index
+
+
 def _review_question(index: int) -> None:
     question = st.session_state.questions[index]
     st.subheader(f"Review câu {index + 1}")
+    with st.container(horizontal=True, horizontal_alignment="distribute"):
+        st.button(
+            "Câu trước", disabled=index == 0, key=f"previous-review-{index}",
+            on_click=_set_review_index, args=(index - 1,),
+        )
+        st.caption(f"Câu {index + 1} / {len(st.session_state.questions)}")
+        st.button(
+            "Câu kế tiếp", disabled=index == len(st.session_state.questions) - 1,
+            key=f"next-review-{index}", on_click=_set_review_index, args=(index + 1,),
+        )
+
+    image_options = ["(Không có ảnh)", *st.session_state.images.keys()]
+    existing_image = question.get("image_id") or "(Không có ảnh)"
+    image_id = st.selectbox(
+        "Ảnh đặt sau passage, trước câu hỏi", image_options,
+        index=image_options.index(existing_image) if existing_image in image_options else 0,
+        key=f"image-review-{index}",
+    )
+    if image_id != "(Không có ảnh)" and image_id in st.session_state.images:
+        metadata = st.session_state.images[image_id]
+        st.image(
+            base64.b64decode(metadata["data"]),
+            caption=f"Preview: {image_id} (trang {metadata.get('page', '?')})",
+            width="stretch",
+        )
+    else:
+        st.caption("Chưa chọn ảnh cho câu hỏi này.")
+
     with st.form(f"review-{index}"):
         passage = st.text_area("Passage", value=question.get("passage", ""), height=180)
         text = st.text_area("Câu hỏi", value=question.get("question", ""), height=100)
@@ -53,12 +88,6 @@ def _review_question(index: int) -> None:
         answer_options = ["(Không có đáp án)", "A", "B", "C", "D"]
         existing_answer = question.get("answer") or "(Không có đáp án)"
         answer = st.selectbox("Đáp án đúng", answer_options, index=answer_options.index(existing_answer))
-        image_options = ["(Không có ảnh)", *st.session_state.images.keys()]
-        existing_image = question.get("image_id") or "(Không có ảnh)"
-        image_id = st.selectbox(
-            "Ảnh đặt sau passage, trước câu hỏi", image_options,
-            index=image_options.index(existing_image) if existing_image in image_options else 0,
-        )
         if st.form_submit_button("Lưu thay đổi", type="primary"):
             question.update({
                 "passage": passage.strip(), "question": text.strip(), "choices": choices,
@@ -96,6 +125,7 @@ if upload and st.button("Phân tích PDF", type="primary", disabled=not api_key)
                 if len(candidates) == 1:
                     question["image_id"] = candidates[0]
             st.session_state.questions = parsed.questions
+            st.session_state.review_index = 0
             st.session_state.images = result.images
             st.session_state.errors = [*result.errors, *parsed.errors]
             st.session_state.source_name = upload.name
@@ -121,7 +151,12 @@ if st.session_state.questions:
 
     left, right = st.columns([1, 3])
     with left:
-        selected = st.selectbox("Chọn câu để review", range(len(questions)), format_func=lambda i: f"Câu {i + 1}")
+        selected = st.selectbox(
+            "Chọn câu để review", range(len(questions)),
+            index=min(st.session_state.get("review_index", 0), len(questions) - 1),
+            format_func=lambda i: f"Câu {i + 1}", key="review_selector",
+        )
+        st.session_state.review_index = selected
         st.metric("Ảnh phát hiện", len(st.session_state.images))
         if st.session_state.errors:
             st.warning(f"Có {len(st.session_state.errors)} cảnh báo/lỗi.")

@@ -42,6 +42,11 @@ class GraphBox(BaseModel):
         description="[ymin, xmin, ymax, xmax] normalized 0-1000. Bắt buộc có nếu has_graph=True, để null nếu has_graph=False",
     )
     label: Optional[str] = Field(default=None, description="Loại biểu đồ, ví dụ 'bar chart', 'line graph'")
+    has_table: bool = Field(default=False, description="True nếu trang có bảng dữ liệu cần crop")
+    table_box_2d: Optional[list[int]] = Field(
+        default=None,
+        description="[ymin, xmin, ymax, xmax] normalized 0-1000, bắt buộc nếu has_table=True",
+    )
 
 
 class PageResults(BaseModel):
@@ -53,7 +58,11 @@ GEMINI_PROMPT_TEMPLATE = """Bạn đang xem {n} trang của một đề thi SAT,
 Với MỖI trang, xác định trang đó CÓ chứa một biểu đồ dữ liệu (data chart/graph — bar chart,
 line graph, scatter plot, pie chart, histogram... có trục số và dữ liệu vẽ) hay KHÔNG.
 
-QUAN TRỌNG - KHÔNG được tính là graph, dù trông giống bảng có ô kẻ:
+Đồng thời, hãy xác định mọi bảng dữ liệu (table) trên trang. Bảng không phải graph.
+Nếu có bảng, trả has_table=true và table_box_2d là bounding box bao trọn toàn bộ bảng.
+Nếu không có bảng, trả has_table=false và table_box_2d=null.
+
+QUAN TRỌNG - Quy tắc dưới đây chỉ dùng để quyết định has_graph; không dùng chúng để bỏ qua table:
 - Bảng metadata ở đầu mỗi câu hỏi ghi "Assessment / Test / Domain / Skill / Difficulty"
   (ví dụ: SAT | Reading and Writing | Information and Ideas | Command of Evidence | Hard)
 - Thanh/ô hiển thị mức độ khó (Easy/Medium/Hard) dạng các ô đen liền kề
@@ -138,6 +147,45 @@ def _crop_graphs_from_results(
     return output
 
 
+def _crop_tables_from_results(
+    page_numbers: list[int],
+    page_images: list[Image.Image],
+    results: PageResults,
+    padding: int = GEMINI_CROP_PADDING,
+) -> dict[str, dict[str, str]]:
+    """Crop table regions from Gemini's normalized table bounding boxes."""
+    image_by_page = {pn: img for pn, img in zip(page_numbers, page_images)}
+    output: dict[str, dict[str, str]] = {}
+    table_index = 0
+    for r in results.results:
+        if not r.has_table or not r.table_box_2d or len(r.table_box_2d) != 4:
+            continue
+        img = image_by_page.get(r.page)
+        if img is None:
+            continue
+        w, h = img.size
+        ymin, xmin, ymax, xmax = r.table_box_2d
+        x0 = max(int(xmin / 1000 * w) - padding, 0)
+        y0 = max(int(ymin / 1000 * h) - padding, 0)
+        x1 = min(int(xmax / 1000 * w) + padding, w)
+        y1 = min(int(ymax / 1000 * h) + padding, h)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        cropped = img.crop((x0, y0, x1, y1))
+        buffer = io.BytesIO()
+        cropped.save(buffer, format="PNG")
+        table_index += 1
+        output[f"p{r.page}_table{table_index}"] = {
+            "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "mime": "image/png",
+            "page": str(r.page),
+            "bbox": f"{x0},{y0},{x1},{y1}",
+            "source": "gemini-table",
+            "label": "table",
+        }
+    return output
+
+
 @dataclass
 class ExtractionResult:
     text: str
@@ -151,11 +199,20 @@ BULLET_PATTERN = re.compile(rf"(?<!^)(?<!\n)[ \t]*([{re.escape(BULLET_CHARS)}])[
 LINE_BULLET_PATTERN = re.compile(rf"(?m)^[ \t]*([{re.escape(BULLET_CHARS)}])[ \t]*")
 
 
+BLANK_LENGTH = 4
+BLANK_SEQUENCE_PATTERN = re.compile(r"_{3,}(?:[ \t]+_{3,})*")
+
+
 def normalize_bullets(text: str) -> str:
     """Give inline PDF bullets their own line without touching answer labels."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ")
     text = BULLET_PATTERN.sub(lambda match: f"\n{match.group(1)} ", text)
     return LINE_BULLET_PATTERN.sub(lambda match: f"{match.group(1)} ", text)
+
+
+def normalize_blanks(text: str) -> str:
+    """Collapse separated PDF blank rules to one fixed-width blank."""
+    return BLANK_SEQUENCE_PATTERN.sub("_" * BLANK_LENGTH, text)
 
 
 def _format_span(span: dict) -> str:
@@ -198,8 +255,7 @@ def _vector_blanks(page: fitz.Page) -> list[fitz.Rect]:
 
 def _blank_placeholder(rule: fitz.Rect, line_height: float) -> str:
     """Approximate the visual width of a vector blank with readable text."""
-    underscore_width = max(line_height * 0.45, 4.0)
-    return "_" * max(3, min(24, round(rule.width / underscore_width)))
+    return "_" * BLANK_LENGTH
 
 
 def _format_line_with_vector_blanks(line: dict, blanks: list[fitz.Rect]) -> str:
@@ -222,12 +278,15 @@ def _format_line_with_vector_blanks(line: dict, blanks: list[fitz.Rect]) -> str:
         # Underlines are placed around the text baseline.  A short horizontal
         # rule must also touch a text fragment on this line to be considered a
         # blank; this avoids turning table borders into underscores.
-        if rule.y0 < line_top - 4 or rule.y0 > line_bottom + 5:
+        # A vector blank is normally drawn on the text baseline, not anywhere
+        # in the vertical gap between two lines.  Keep this window tight so a
+        # blank from the previous line cannot be duplicated on the next line.
+        if rule.y0 < line_bottom - 2 or rule.y0 > line_bottom + 2:
             continue
         if any(rule.intersects(rect) for rect in span_rects):
             continue
         adjacent = any(
-            abs(rule.x1 - rect.x0) <= 18 or abs(rule.x0 - rect.x1) <= 18 for rect in span_rects
+            abs(rule.x1 - rect.x0) <= 12 or abs(rule.x0 - rect.x1) <= 12 for rect in span_rects
         )
         if adjacent:
             fragments.append((rule.x0, 0, _blank_placeholder(rule, line_height)))
@@ -245,7 +304,7 @@ def extract_formatted_text(page: fitz.Page) -> str:
             continue
         for line in block.get("lines", []):
             lines.append(_format_line_with_vector_blanks(line, vector_blanks))
-    return normalize_bullets("\n".join(lines).strip())
+    return normalize_blanks(normalize_bullets("\n".join(lines).strip()))
 
 
 def extract_pdf(
@@ -282,8 +341,9 @@ def extract_pdf(
                 "source": "raster",
             }
 
-        if not found_raster:
-            pages_needing_gemini.append(page_index)
+        # Gemini is also responsible for detecting and reading vector tables,
+        # so inspect every page instead of skipping pages that contain images.
+        pages_needing_gemini.append(page_index)
 
     # --- Batch 1 request Gemini duy nhất, chỉ chạy nếu có api_key được truyền vào ---
     if gemini_api_key and pages_needing_gemini:
@@ -297,17 +357,19 @@ def extract_pdf(
 
             results = _detect_graphs_batch(page_numbers, page_images, gemini_api_key, gemini_model)
             graph_images = _crop_graphs_from_results(page_numbers, page_images, results)
+            table_images = _crop_tables_from_results(page_numbers, page_images, results)
 
-            if graph_images:
+            if graph_images or table_images:
                 images.update(graph_images)
+                images.update(table_images)
                 errors.append({
-                    "level": "info", "code": "GEMINI_GRAPHS_FOUND",
-                    "message": f"Phát hiện {len(graph_images)} biểu đồ bằng Gemini trên {len(pages_needing_gemini)} trang.",
+                    "level": "info", "code": "GEMINI_VISUALS_FOUND",
+                    "message": f"Gemini đã crop {len(graph_images)} graph và {len(table_images)} table trên {len(pages_needing_gemini)} trang.",
                 })
             else:
                 errors.append({
-                    "level": "info", "code": "GEMINI_NO_GRAPHS",
-                    "message": f"Gemini không phát hiện biểu đồ nào trên {len(pages_needing_gemini)} trang được kiểm tra.",
+                    "level": "info", "code": "GEMINI_NO_VISUALS",
+                    "message": f"Gemini không phát hiện graph/table trên {len(pages_needing_gemini)} trang được kiểm tra.",
                 })
         except Exception as exc:
             errors.append({

@@ -1,73 +1,75 @@
-# PDF to BlueBook
+# 📘 PDF to BlueBook
 
-Local self-app for turning SAT Reading and Writing PDFs into editable, offline practice tests.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-app-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![Gemini](https://img.shields.io/badge/AI-Gemini-8E75B2?logo=google&logoColor=white)](https://ai.google.dev/)
 
-> This project is built for one teacher's day-to-day workflow: prepare material quickly, fix extraction errors, and use the generated test while teaching.
+> *Một self-app cá nhân giúp giáo viên biến đề SAT dạng PDF thành bài luyện tập kiểu BlueBook để sử dụng nhanh trong giờ dạy học.*
 
-## Highlights
+## ✨ Tính năng chính
 
-- Convert a text-based SAT PDF into structured passages, questions, choices, images, and answer keys.
-- Use Gemini to parse questions while correcting obvious extraction spelling and spacing errors.
-- Preserve useful source formatting such as bold, italic, underline, bullets, and vector-drawn answer blanks.
-- Review and edit every parsed question before creating the practice test.
-- Export a self-contained HTML test with a timer, passage scrolling, highlight mode, review marks, question navigation, and progress state.
-- Submit the test and review each question from a color-coded result grid: green for correct and red for incorrect or unanswered.
-- Keep everything local except the Gemini request used during PDF analysis.
+- 📄 Đọc PDF SAT Reading & Writing và chuyển thành passage, câu hỏi, lựa chọn, đáp án và hình ảnh.
+- 🤖 Dùng Gemini để phân tích câu hỏi, sửa lỗi chính tả/spacing phổ biến và nhận diện graph/table bằng vùng ảnh.
+- 🧹 Giữ lại định dạng quan trọng như **in đậm**, *in nghiêng*, gạch chân, bullet và chỗ trống đáp án.
+- 🛠️ Có màn hình review để kiểm tra và chỉnh dữ liệu trước khi xuất đề.
+- 🌐 Xuất HTML offline với giao diện hiện đại, timer, cuộn passage và điều hướng câu hỏi.
+- 🖍️ Highlight hai chiều: quét đoạn thường để highlight, quét đoạn đã highlight để bỏ highlight.
+- 🚩 Đánh dấu câu cần xem lại, theo dõi câu đã làm/chưa làm và lọc danh sách câu hỏi.
+- 📊 Sau khi nộp bài, xem từng câu bằng các ô màu xanh/đỏ và mở chi tiết đáp án khi cần.
 
-## Overview
+## 🧭 Tổng quan
 
-PDF to BlueBook is a personal teaching tool rather than a general-purpose publishing platform. SAT worksheets often contain layout, formatting, images, tables, underlined evidence, and answer blanks that are difficult to reuse directly in class. This app turns that material into a browser-based practice experience so the teacher can spend less time reformatting files and more time teaching.
+PDF to BlueBook được xây dựng cho một nhu cầu rất cụ thể trong quá trình dạy học: giảm thời gian xử lý thủ công những đề PDF có layout phức tạp, bảng, hình, gạch chân và chỗ trống. Đây là công cụ cá nhân chạy trên Windows, ưu tiên **work được trước**, dữ liệu ở trong phiên làm việc và file HTML sau khi xuất có thể mở offline trên trình duyệt.
 
-The workflow is intentionally simple:
+Quy trình sử dụng:
 
-1. Upload a SAT PDF in the Streamlit app.
-2. Let PyMuPDF extract the source content and Gemini identify the questions.
-3. Review and correct the parsed content in the editing screen.
-4. Export the practice test as an offline HTML file.
-5. Open the HTML file in a browser and use it during a lesson.
+1. 📥 Tải đề SAT PDF lên ứng dụng Streamlit.
+2. 🔎 PyMuPDF đọc nội dung; Gemini phân tích câu hỏi và nhận diện hình/bảng cần tách.
+3. ✍️ Kiểm tra, sửa và bổ sung dữ liệu trong màn hình review.
+4. ⏱️ Chọn thời lượng rồi xuất bài luyện tập HTML.
+5. 🧑‍🏫 Mở HTML trên trình duyệt và sử dụng trực tiếp trong giờ học.
 
-### Authors
+### 👤 Tác giả
 
-Built and maintained as a personal self-app for teaching and lesson preparation.
+Được xây dựng và duy trì như một self-app cá nhân để chuẩn bị bài và hỗ trợ dạy học.
 
-## Usage
+## 🚀 Cách sử dụng
 
-Start the local app from PowerShell:
+Khởi động ứng dụng bằng PowerShell:
 
 ```powershell
 .\.venv\Scripts\streamlit.exe run app.py
 ```
 
-Then enter a Gemini API key, upload a SAT PDF, choose the time limit, review the extracted questions, and select **Render HTML offline**. Open the downloaded HTML file in a browser to run the practice test.
+Nhập Gemini API key trong ứng dụng, tải PDF, kiểm tra dữ liệu đã parse, chọn thời lượng và bấm **Render HTML offline**. Sau đó mở file HTML được tạo bằng trình duyệt.
 
-The generated test supports:
+Bài HTML hỗ trợ:
 
-- passage scrolling and optional highlight mode;
-- marking questions for review;
-- switching between all, answered, marked, and unanswered questions;
-- a timer configured before rendering;
-- answer submission and per-question result review;
-- an unscored mode when the source PDF has no answer key.
+- cuộn passage và bật/tắt chế độ highlight;
+- đánh dấu câu cần xem lại;
+- chuyển nhanh giữa các câu và lọc câu đã làm/chưa làm;
+- timer được đặt trước lúc render;
+- nộp bài và xem kết quả theo từng câu;
+- chế độ không có đáp án khi đề nguồn không cung cấp answer key.
 
-## Installation
+## 📦 Cài đặt
 
-Windows is currently the supported platform. Python 3.10 or newer and a Gemini API key are recommended.
-
-Create or activate the project virtual environment, then install dependencies:
+Hiện tại dự án hỗ trợ Windows, Python 3.10 trở lên và cần Gemini API key để parse câu hỏi.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-The main dependencies are Streamlit, PyMuPDF, Pillow, and the Google GenAI SDK. The API key is entered in the app for the current session and is not written to the project files.
+Các thành phần chính gồm Streamlit, PyMuPDF, Pillow và Google GenAI SDK. API key chỉ được dùng trong phiên hiện tại và không được ghi vào source code.
 
-## Feedback and Contributing
+## 💬 Phản hồi và đóng góp
 
-This is currently a single-user teaching tool. If you find an extraction error or want to improve the classroom workflow, record the PDF pattern, the incorrect result, and the expected result in an issue or change request. Contributions that improve PDF fidelity, editing reliability, offline HTML behavior, and lesson usability are especially welcome.
+Nếu gặp lỗi trích xuất, hãy ghi lại mẫu PDF, kết quả ứng dụng tạo ra và kết quả mong muốn rồi mở issue hoặc change request. Các đóng góp giúp tăng độ chính xác khi đọc PDF, nhận diện graph/table, cải thiện màn hình review và trải nghiệm sử dụng trong lớp học đều được hoan nghênh.
 
-## Current Limitations
+## ⚠️ Giới hạn hiện tại
 
-- Scanned PDFs without a usable text layer are not yet supported reliably.
-- Gemini is required for question parsing and graph detection.
-- Extraction quality still depends on the source PDF's layout and text layer; review the generated questions before class.
-- Highlight marks and review state live inside the open browser session and are not saved back to the source PDF.
+- PDF scan không có text layer có thể chưa được hỗ trợ ổn định.
+- Gemini hiện cần thiết cho việc parse câu hỏi và nhận diện graph/table.
+- Chất lượng trích xuất phụ thuộc vào layout và text layer của PDF; nên review trước khi dùng trong lớp.
+- Highlight và trạng thái đánh dấu chỉ tồn tại trong phiên trình duyệt đang mở, không ghi ngược vào PDF nguồn.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .pdf_extract import normalize_bullets
+from .pdf_extract import normalize_blanks, normalize_bullets
 
 
 @dataclass
@@ -44,9 +44,9 @@ Return only JSON matching the supplied schema. Each question must have exactly c
 PDF cleanup rules - apply before writing JSON:
 1. Fix obvious text-extraction spelling, word-boundary, and spacing mistakes. Join a word split by a line-end hyphen (for example, "comprehen-\nsive" becomes "comprehensive"). Join broken fragments of one word, separate accidentally merged words, and correct an obvious misspelling when the intended standard American English word is unambiguous.
 2. Do not rewrite, simplify, paraphrase, or change the meaning of a valid SAT question, passage, answer choice, proper noun, quotation, title, number, or punctuation. If a correction is uncertain, preserve the extracted text and lower confidence.
-3. Ignore all tabular material. Tables are extracted and rendered separately. Do not include a table title, header, cell value, row label, column label, or table note in passage, question, or choices - even when the question refers to a table or graph.
+3. Tables and graphs are supplied separately as cropped images. Do not create `[TABLE]` markers or copy table cells into the passage, question, or answer choices.
 4. Preserve every existing <u>, <b>, and <i> tag exactly in its original place. These tags are meaningful source formatting: underline often marks the evidence to analyze. Never remove, add, move, or convert these tags.
-5. Preserve every sequence of three or more underscore characters (`___`) exactly where it occurs. It represents an answer blank drawn as a vector line in the source PDF; never remove, shorten, replace, or move it.
+5. Treat one or more underscore blank rules separated only by spaces as one blank. Always output exactly 4 underscores (`____`) for each blank and never output multiple adjacent blanks for the same source line.
 6. Every bullet item must be on a separate line in the form `• item text`; never combine bullet items into one line. Preserve line breaks between bullet items in the passage field.
 
 Keep a shared passage with every question that uses it. source_page must be the number following the closest preceding '--- PAGE N ---' marker.
@@ -70,7 +70,10 @@ def parse_questions(raw_text: str, *, api_key: str, model: str) -> ParseResult:
     errors: list[dict[str, str]] = []
     normalized: list[dict] = []
     for position, question in enumerate(payload.get("questions", []), 1):
-        choices = {key: str(question.get("choices", {}).get(key, "")).strip() for key in "ABCD"}
+        choices = {
+            key: normalize_blanks(str(question.get("choices", {}).get(key, "")).strip())
+            for key in "ABCD"
+        }
         missing = [key for key, value in choices.items() if not value]
         confidence = float(question.get("confidence", 0))
         if missing:
@@ -80,8 +83,8 @@ def parse_questions(raw_text: str, *, api_key: str, model: str) -> ParseResult:
         answer = question.get("answer")
         normalized.append({
             "id": question.get("id") or f"q{position:02d}",
-            "passage": normalize_bullets(str(question.get("passage", "")).strip()),
-            "question": normalize_bullets(str(question.get("question", "")).strip()), "choices": choices,
+            "passage": normalize_blanks(normalize_bullets(str(question.get("passage", "")).strip())),
+            "question": normalize_blanks(normalize_bullets(str(question.get("question", "")).strip())), "choices": choices,
             "answer": answer if answer in {"A", "B", "C", "D"} else None,
             "confidence": confidence, "source_page": int(question.get("source_page", 0) or 0), "image_id": None,
         })
