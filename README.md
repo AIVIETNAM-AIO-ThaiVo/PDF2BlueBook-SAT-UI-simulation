@@ -13,6 +13,8 @@
 - 🤖 Dùng Gemini để phân tích câu hỏi, sửa lỗi chính tả/spacing phổ biến và nhận diện graph/table bằng vùng ảnh.
 - 🧹 Giữ lại định dạng quan trọng như **in đậm**, *in nghiêng*, gạch chân, bullet và chỗ trống đáp án.
 - 🛠️ Có màn hình review để kiểm tra và chỉnh dữ liệu trước khi xuất đề.
+- 🗂️ Tự phân loại câu hỏi theo category và subcategory trong taxonomy SAT Reading & Writing.
+- 🔍 Lọc theo category/subcategory để chọn đúng tập câu muốn render và review.
 - 🌐 Xuất HTML offline với giao diện hiện đại, timer, cuộn passage và điều hướng câu hỏi.
 - 🖍️ Highlight hai chiều: quét đoạn thường để highlight, quét đoạn đã highlight để bỏ highlight.
 - 🚩 Đánh dấu câu cần xem lại, theo dõi câu đã làm/chưa làm và lọc danh sách câu hỏi.
@@ -26,9 +28,10 @@ Quy trình sử dụng:
 
 1. 📥 Tải đề SAT PDF lên ứng dụng Streamlit.
 2. 🔎 PyMuPDF đọc nội dung; Gemini phân tích câu hỏi và nhận diện hình/bảng cần tách.
-3. ✍️ Kiểm tra, sửa và bổ sung dữ liệu trong màn hình review.
-4. ⏱️ Chọn thời lượng rồi xuất bài luyện tập HTML.
-5. 🧑‍🏫 Mở HTML trên trình duyệt và sử dụng trực tiếp trong giờ học.
+3. 🧩 Chọn category/subcategory để thu hẹp tập câu cần dùng.
+4. ✍️ Kiểm tra, sửa và bổ sung dữ liệu trong màn hình review của các câu đã lọc.
+5. ⏱️ Chọn thời lượng rồi xuất bài luyện tập HTML.
+6. 🧑‍🏫 Mở HTML trên trình duyệt và sử dụng trực tiếp trong giờ học.
 
 ### 👤 Tác giả
 
@@ -49,6 +52,7 @@ Bài HTML hỗ trợ:
 - cuộn passage và bật/tắt chế độ highlight;
 - đánh dấu câu cần xem lại;
 - chuyển nhanh giữa các câu và lọc câu đã làm/chưa làm;
+- lọc câu theo category/subcategory trước khi review và render;
 - timer được đặt trước lúc render;
 - nộp bài và xem kết quả theo từng câu;
 - chế độ không có đáp án khi đề nguồn không cung cấp answer key.
