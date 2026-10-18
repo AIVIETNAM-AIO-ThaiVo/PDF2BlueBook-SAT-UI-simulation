@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import base64
+import hashlib
 import os
 import re
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from pdf2bluebook.pdf_extract import extract_pdf
+from pdf2bluebook.pdf_extract import extract_pdf, get_pdf_page_count, render_page_preview
 from pdf2bluebook.gemini_parser import parse_questions
 from pdf2bluebook.modern_html_renderer import render_exam_html
 from pdf2bluebook.question_categories import ALL_CATEGORIES, QUESTION_CATEGORIES
@@ -27,10 +28,19 @@ def _new_session() -> None:
     st.session_state.source_name = ""
     st.session_state.has_answer_key = None
     st.session_state.review_index = 0
+    st.session_state.preview_signature = ""
+    st.session_state.preview_path = ""
+    st.session_state.preview_page_count = 0
+    st.session_state.focus_overlay_page = None
 
 
 if "questions" not in st.session_state:
     _new_session()
+else:
+    st.session_state.setdefault("preview_signature", "")
+    st.session_state.setdefault("preview_path", "")
+    st.session_state.setdefault("preview_page_count", 0)
+    st.session_state.setdefault("focus_overlay_page", None)
 
 
 def _save_upload(upload) -> Path:
@@ -38,6 +48,43 @@ def _save_upload(upload) -> Path:
     target = temp_dir / upload.name
     target.write_bytes(upload.getvalue())
     return target
+
+
+@st.cache_data(show_spinner=False)
+def _cached_page_preview(path: str, page_index: int, max_width: int, zoom: float) -> bytes:
+    return render_page_preview(Path(path), page_index, max_width=max_width, zoom=zoom)
+
+
+def _display_preview(image_bytes: bytes, *, alt: str) -> None:
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    st.html(
+        f'<div style="width:100%;overflow:hidden;border-radius:4px;">'
+        f'<img src="data:image/png;base64,{encoded}" alt="{alt}" '
+        'style="display:block;width:100%;height:auto;">'
+        "</div>"
+    )
+
+
+def _request_page_focus(page_index: int) -> None:
+    st.session_state.focus_overlay_page = page_index
+
+
+def _clear_page_focus() -> None:
+    st.session_state.focus_overlay_page = None
+
+
+@st.dialog("Preview trang", width="large", icon=":material/center_focus_strong:", on_dismiss=_clear_page_focus)
+def _show_page_focus(path: str, page_index: int) -> None:
+    st.caption(f"Trang {page_index + 1}")
+    _display_preview(
+        _cached_page_preview(path, page_index, max_width=1400, zoom=1.0),
+        alt=f"Preview lớn trang {page_index + 1}",
+    )
+
+
+def _set_page_selection(selected: bool) -> None:
+    for page_index in range(st.session_state.preview_page_count):
+        st.session_state[f"page-selected-{page_index}"] = selected
 
 
 def _set_review_index(index: int) -> None:
@@ -138,11 +185,81 @@ with st.sidebar:
     st.caption("MVP chỉ nhận PDF có text layer; PDF scan sẽ bị từ chối.")
 
 upload = st.file_uploader("Chọn file PDF", type=["pdf"])
-if upload and st.button("Phân tích PDF", type="primary", disabled=not api_key):
+selected_page_indices: list[int] = []
+if upload:
+    upload_bytes = upload.getvalue()
+    upload_signature = hashlib.sha256(upload_bytes).hexdigest()
+    if upload_signature != st.session_state.preview_signature:
+        preview_path = _save_upload(upload)
+        st.session_state.preview_signature = upload_signature
+        st.session_state.preview_path = str(preview_path)
+        st.session_state.preview_page_count = get_pdf_page_count(preview_path)
+        st.session_state.focus_overlay_page = None
+        for page_index in range(st.session_state.preview_page_count):
+            st.session_state[f"page-selected-{page_index}"] = True
+
+    st.subheader("Chọn trang cần xử lý")
+    st.caption("Thumbnail chỉ dùng để xem nhanh. Pipeline sẽ chỉ chạy trên các trang được chọn.")
+    controls_left, controls_right = st.columns(2)
+    with controls_left:
+        st.button("Chọn tất cả", on_click=_set_page_selection, args=(True,), key="select-all-pages")
+    with controls_right:
+        st.button("Bỏ chọn tất cả", on_click=_set_page_selection, args=(False,), key="deselect-all-pages")
+
+    st.markdown(
+        "<style>div[data-testid='stVerticalBlockBorderWrapper'] { border: 2px solid #111827 !important; border-radius: 8px; padding: 8px; }</style>",
+        unsafe_allow_html=True,
+    )
+    grid_columns = st.columns(4)
+    for page_index in range(st.session_state.preview_page_count):
+        with grid_columns[page_index % 4]:
+            with st.container(border=True):
+                label_col, check_col = st.columns([4, 1])
+                with label_col:
+                    st.caption(f"Trang {page_index + 1}")
+                with check_col:
+                    st.checkbox(
+                        "Đã chọn",
+                        key=f"page-selected-{page_index}",
+                        label_visibility="collapsed",
+                    )
+                _display_preview(
+                    _cached_page_preview(st.session_state.preview_path, page_index, max_width=240, zoom=1.0),
+                    alt=f"Preview trang {page_index + 1}",
+                )
+                _, focus_col = st.columns([3, 1])
+                with focus_col:
+                    st.button(
+                        ":material/center_focus_strong:",
+                        help="Mở trang này ở preview lớn",
+                        key=f"focus-page-{page_index}",
+                        on_click=_request_page_focus,
+                        args=(page_index,),
+                    )
+
+    selected_page_indices = [
+        page_index
+        for page_index in range(st.session_state.preview_page_count)
+        if st.session_state.get(f"page-selected-{page_index}", False)
+    ]
+    st.info(f"Đã chọn **{len(selected_page_indices)} / {st.session_state.preview_page_count}** trang.")
+    overlay_page = st.session_state.get("focus_overlay_page")
+    if overlay_page is not None and 0 <= overlay_page < st.session_state.preview_page_count:
+        _show_page_focus(st.session_state.preview_path, overlay_page)
+
+if upload and st.session_state.preview_path and st.button("Phân tích các trang đã chọn", type="primary", disabled=not selected_page_indices):
+    if not api_key:
+        st.error("Hãy nhập Gemini API key ở thanh bên trước khi bắt đầu xử lý.")
+        st.stop()
     with st.status("Đang xử lý PDF...", expanded=True) as status:
         try:
-            pdf_path = _save_upload(upload)
-            result = extract_pdf(pdf_path, gemini_api_key=api_key, gemini_model=model)
+            pdf_path = Path(st.session_state.preview_path)
+            result = extract_pdf(
+                pdf_path,
+                gemini_api_key=api_key,
+                gemini_model=model,
+                selected_page_indices=selected_page_indices,
+            )
             st.write(f"Đã trích xuất {result.page_count} trang, {len(result.images)} ảnh.")
             parsed = parse_questions(result.text, api_key=api_key, model=model)
             page_images: dict[str, list[str]] = {}

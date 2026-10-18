@@ -13,6 +13,8 @@
 - 🤖 Dùng Gemini để phân tích câu hỏi, sửa lỗi chính tả/spacing phổ biến và nhận diện graph/table bằng vùng ảnh.
 - 🧹 Giữ lại định dạng quan trọng như **in đậm**, *in nghiêng*, gạch chân, bullet và chỗ trống đáp án.
 - 🛠️ Có màn hình review để kiểm tra và chỉnh dữ liệu trước khi xuất đề.
+- 🗃️ Preview PDF dạng lưới, chọn các trang cần xử lý trước khi chạy pipeline.
+- 🔎 Mở modal focus lớn cho từng trang từ thumbnail để kiểm tra chi tiết.
 - 🗂️ Tự phân loại câu hỏi theo category và subcategory trong taxonomy SAT Reading & Writing.
 - 🔍 Lọc theo category/subcategory để chọn đúng tập câu muốn render và review.
 - 🌐 Xuất HTML offline với giao diện hiện đại, timer, cuộn passage và điều hướng câu hỏi.
@@ -27,11 +29,12 @@ PDF to BlueBook được xây dựng cho một nhu cầu rất cụ thể trong 
 Quy trình sử dụng:
 
 1. 📥 Tải đề SAT PDF lên ứng dụng Streamlit.
-2. 🔎 PyMuPDF đọc nội dung; Gemini phân tích câu hỏi và nhận diện hình/bảng cần tách.
-3. 🧩 Chọn category/subcategory để thu hẹp tập câu cần dùng.
-4. ✍️ Kiểm tra, sửa và bổ sung dữ liệu trong màn hình review của các câu đã lọc.
-5. ⏱️ Chọn thời lượng rồi xuất bài luyện tập HTML.
-6. 🧑‍🏫 Mở HTML trên trình duyệt và sử dụng trực tiếp trong giờ học.
+2. 🖼️ Xem thumbnail toàn bộ trang, chọn/bỏ chọn trang và mở modal focus khi cần xem lớn.
+3. 🔎 PyMuPDF đọc nội dung; Gemini phân tích câu hỏi và nhận diện hình/bảng cần tách trên các trang đã chọn.
+4. 🧩 Chọn category/subcategory để thu hẹp tập câu cần dùng.
+5. ✍️ Kiểm tra, sửa và bổ sung dữ liệu trong màn hình review của các câu đã lọc.
+6. ⏱️ Chọn thời lượng rồi xuất bài luyện tập HTML.
+7. 🧑‍🏫 Mở HTML trên trình duyệt và sử dụng trực tiếp trong giờ học.
 
 ### 👤 Tác giả
 
@@ -53,6 +56,7 @@ Bài HTML hỗ trợ:
 - đánh dấu câu cần xem lại;
 - chuyển nhanh giữa các câu và lọc câu đã làm/chưa làm;
 - lọc câu theo category/subcategory trước khi review và render;
+- chọn trang PDF trước khi chạy pipeline và xem từng trang trong modal focus;
 - timer được đặt trước lúc render;
 - nộp bài và xem kết quả theo từng câu;
 - chế độ không có đáp án khi đề nguồn không cung cấp answer key.
