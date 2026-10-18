@@ -21,9 +21,10 @@ from google.genai import types
 # ---------------------------------------------------------------------------
 # Gemini config
 # ---------------------------------------------------------------------------
-GEMINI_DEFAULT_MODEL = "gemini-3-flash-preview"
+GEMINI_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 GEMINI_RENDER_SCALE = 2.0
 GEMINI_CROP_PADDING = 10
+GEMINI_MAX_BATCH_PAGES = 10
 
 
 def _get_gemini_client(api_key: str) -> genai.Client:
@@ -47,6 +48,9 @@ class GraphBox(BaseModel):
         default=None,
         description="[ymin, xmin, ymax, xmax] normalized 0-1000, bắt buộc nếu has_table=True",
     )
+
+
+    ocr_text: Optional[str] = Field(default=None, description="OCR to�n b? ch? v� s? n?m trong bbox graph/table")
 
 
 class PageResults(BaseModel):
@@ -76,6 +80,16 @@ Trả kết quả (field "page") đúng theo số trang đã ghi trong nhãn "Tr
 Trả kết quả cho TẤT CẢ {n} trang, không bỏ trang nào."""
 
 
+VISUAL_EXCLUSION_RULES = """
+VISUAL EXCLUSION RULE: Exclude a table only when it is the assessment metadata
+table containing the column headers Assessment | Test | Domain | Skill | Difficulty.
+For that exact layout, return has_table=false and table_box_2d=null; it is not a
+data table and must never be returned as a visual crop. Easy/Medium/Hard rating
+boxes alone are not enough to exclude a table: tables in the test may contain
+those words and should still be cropped when they are actual data tables.
+"""
+
+
 def _detect_graphs_batch(
     page_numbers: list[int],
     page_images: list[Image.Image],
@@ -85,7 +99,12 @@ def _detect_graphs_batch(
     """Gửi 1 request duy nhất chứa nhiều ảnh trang cho Gemini, trả bbox theo từng trang."""
     client = _get_gemini_client(api_key)
     n = len(page_images)
-    prompt = GEMINI_PROMPT_TEMPLATE.format(n=n)
+    prompt = GEMINI_PROMPT_TEMPLATE.format(n=n) + VISUAL_EXCLUSION_RULES + """
+
+For every detected graph or table, also return ocr_text containing all text and
+numbers visibly inside that exact bounding box. Keep the original reading order.
+Do not invent text outside the box; use an empty string when nothing is readable.
+"""
 
     parts: list = [prompt]
     for page_number, img in zip(page_numbers, page_images):
@@ -138,9 +157,10 @@ def _crop_graphs_from_results(
         output[image_id] = {
             "data": encoded,
             "mime": "image/png",
-            "page": str(r.page),
+            "page": r.page,
             "bbox": f"{x0},{y0},{x1},{y1}",
             "source": "gemini",
+            "ocr": r.ocr_text or "",
             "label": r.label or "",
         }
 
@@ -178,9 +198,10 @@ def _crop_tables_from_results(
         output[f"p{r.page}_table{table_index}"] = {
             "data": base64.b64encode(buffer.getvalue()).decode("ascii"),
             "mime": "image/png",
-            "page": str(r.page),
+            "page": r.page,
             "bbox": f"{x0},{y0},{x1},{y1}",
             "source": "gemini-table",
+            "ocr": r.ocr_text or "",
             "label": "table",
         }
     return output
@@ -334,6 +355,7 @@ def extract_pdf(
     gemini_api_key: str | None = None,
     gemini_model: str = GEMINI_DEFAULT_MODEL,
     selected_page_indices: list[int] | None = None,
+    detect_visuals: bool = True,
 ) -> ExtractionResult:
     document = fitz.open(path)
     pages: list[str] = []
@@ -376,7 +398,7 @@ def extract_pdf(
         pages_needing_gemini.append(page_index)
 
     # --- Batch 1 request Gemini duy nhất, chỉ chạy nếu có api_key được truyền vào ---
-    if gemini_api_key and pages_needing_gemini:
+    if detect_visuals and gemini_api_key and pages_needing_gemini:
         try:
             mat = fitz.Matrix(GEMINI_RENDER_SCALE, GEMINI_RENDER_SCALE)
             page_numbers = [idx + 1 for idx in pages_needing_gemini]
@@ -406,7 +428,7 @@ def extract_pdf(
                 "level": "warning", "code": "GEMINI_EXTRACTION_FAILED",
                 "message": f"Không thể chạy Gemini detection: {exc}",
             })
-    elif not gemini_api_key and pages_needing_gemini:
+    elif detect_visuals and not gemini_api_key and pages_needing_gemini:
         errors.append({
             "level": "info", "code": "GEMINI_SKIPPED_NO_KEY",
             "message": f"Bỏ qua Gemini detection cho {len(pages_needing_gemini)} trang vì chưa có API key.",
@@ -428,3 +450,50 @@ def extract_pdf(
         })
 
     return ExtractionResult(combined, images, len(pages), errors)
+
+
+def extract_visuals(
+    path: Path,
+    *,
+    gemini_api_key: str,
+    gemini_model: str = GEMINI_DEFAULT_MODEL,
+    selected_page_indices: list[int] | None = None,
+) -> tuple[dict[str, dict[str, str]], list[dict[str, str]]]:
+    """Run the second pipeline call: detect bbox and OCR text inside each bbox."""
+    document = fitz.open(path)
+    try:
+        selected_pages = (
+            set(range(len(document)))
+            if selected_page_indices is None
+            else {index for index in selected_page_indices if 0 <= index < len(document)}
+        )
+        page_indices = sorted(selected_pages)
+        all_images: dict[str, dict[str, str]] = {}
+        errors: list[dict[str, str]] = []
+        mat = fitz.Matrix(GEMINI_RENDER_SCALE, GEMINI_RENDER_SCALE)
+        for batch_start in range(0, len(page_indices), GEMINI_MAX_BATCH_PAGES):
+            batch_indices = page_indices[batch_start:batch_start + GEMINI_MAX_BATCH_PAGES]
+            page_numbers = [index + 1 for index in batch_indices]
+            page_images = [
+                Image.open(io.BytesIO(document[index].get_pixmap(matrix=mat).tobytes("png")))
+                for index in batch_indices
+            ]
+            try:
+                results = _detect_graphs_batch(page_numbers, page_images, gemini_api_key, gemini_model)
+                all_images.update(_crop_graphs_from_results(page_numbers, page_images, results))
+                all_images.update(_crop_tables_from_results(page_numbers, page_images, results))
+            except Exception as exc:
+                errors.append({
+                    "level": "warning",
+                    "code": "GEMINI_VISUAL_BATCH_FAILED",
+                    "message": f"Visual batch {batch_start // GEMINI_MAX_BATCH_PAGES + 1} thất bại: {exc}",
+                })
+        if all_images:
+            errors.append({
+                "level": "info",
+                "code": "GEMINI_VISUALS_FOUND",
+                "message": f"Gemini đã crop/OCR {len(all_images)} visual trong bước bbox.",
+            })
+        return all_images, errors
+    finally:
+        document.close()
