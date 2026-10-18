@@ -194,6 +194,28 @@ class ExtractionResult:
     errors: list[dict[str, str]]
 
 
+def get_pdf_page_count(path: Path) -> int:
+    """Return the total number of pages without extracting the document."""
+    document = fitz.open(path)
+    try:
+        return len(document)
+    finally:
+        document.close()
+
+
+def render_page_preview(path: Path, page_index: int, *, max_width: int = 240, zoom: float = 1.0) -> bytes:
+    """Render one PDF page as a PNG preview without altering the source PDF."""
+    document = fitz.open(path)
+    try:
+        page = document[page_index]
+        page_width = max(float(page.rect.width), 1.0)
+        scale = max(max_width / page_width * zoom, 0.1)
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+        return pixmap.tobytes("png")
+    finally:
+        document.close()
+
+
 BULLET_CHARS = "•◦▪‣∙●○■□◆◇▪▫·"
 BULLET_PATTERN = re.compile(rf"(?<!^)(?<!\n)[ \t]*([{re.escape(BULLET_CHARS)}])[ \t]*")
 LINE_BULLET_PATTERN = re.compile(rf"(?m)^[ \t]*([{re.escape(BULLET_CHARS)}])[ \t]*")
@@ -311,6 +333,7 @@ def extract_pdf(
     path: Path,
     gemini_api_key: str | None = None,
     gemini_model: str = GEMINI_DEFAULT_MODEL,
+    selected_page_indices: list[int] | None = None,
 ) -> ExtractionResult:
     document = fitz.open(path)
     pages: list[str] = []
@@ -318,8 +341,15 @@ def extract_pdf(
     errors: list[dict[str, str]] = []
 
     pages_needing_gemini: list[int] = []
+    selected_pages = (
+        set(range(len(document)))
+        if selected_page_indices is None
+        else {index for index in selected_page_indices if 0 <= index < len(document)}
+    )
 
     for page_index, page in enumerate(document):
+        if page_index not in selected_pages:
+            continue
         page_number = page_index + 1
         text = extract_formatted_text(page)
 
