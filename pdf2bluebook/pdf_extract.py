@@ -87,6 +87,8 @@ For that exact layout, return has_table=false and table_box_2d=null; it is not a
 data table and must never be returned as a visual crop. Easy/Medium/Hard rating
 boxes alone are not enough to exclude a table: tables in the test may contain
 those words and should still be cropped when they are actual data tables.
+For every table that is cropped, make table_box_2d include the table's full visible
+title as well as the complete table body and headers.
 """
 
 
